@@ -6,3 +6,4 @@ MNIST-data
 log
 checkpoints
 MANIFEST
+.DS_Store
