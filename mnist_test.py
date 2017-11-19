@@ -21,6 +21,8 @@ import cv2
 import sys
 
 from tensorflow.examples.tutorials.mnist import input_data as mnist_data
+
+
 print("Tensorflow version " + tf.__version__)
 tf.set_random_seed(0.0)
 
@@ -148,34 +150,6 @@ Y4 = tf.nn.dropout(Y4r, pkeep)
 Ylogits = tf.matmul(Y4, W5) + B5
 Y = tf.nn.softmax(Ylogits)
 
-update_ema = tf.group(update_ema1, update_ema2, update_ema3, update_ema4)
-
-# cross-entropy loss function (= -sum(Y_i * log(Yi)) ), normalised for batches of 100  images
-# TensorFlow provides the softmax_cross_entropy_with_logits function to avoid numerical stability
-# problems with log(0) which is NaN
-cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
-    logits=Ylogits, labels=Y_)
-cross_entropy = tf.reduce_mean(cross_entropy) * 100
-
-# accuracy of the trained model, between 0 (worst) and 1 (best)
-correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
-accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-# matplotlib visualisation
-allweights = tf.concat([tf.reshape(W1, [-1]), tf.reshape(W2, [-1]),
-                        tf.reshape(W3, [-1]), tf.reshape(W4, [-1]), tf.reshape(W5, [-1])], 0)
-allbiases = tf.concat([tf.reshape(B1, [-1]), tf.reshape(B2, [-1]),
-                       tf.reshape(B3, [-1]), tf.reshape(B4, [-1]), tf.reshape(B5, [-1])], 0)
-conv_activations = tf.concat([tf.reshape(tf.reduce_max(Y1r, [0]), [-1]), tf.reshape(
-    tf.reduce_max(Y2r, [0]), [-1]), tf.reshape(tf.reduce_max(Y3r, [0]), [-1])], 0)
-dense_activations = tf.reduce_max(Y4r, [0])
-I = tensorflowvisu.tf_format_mnist_images(X, Y, Y_)
-It = tensorflowvisu.tf_format_mnist_images(X, Y, Y_, 1000, lines=25)
-#datavis = tensorflowvisu.MnistDataVis(title4="batch-max conv activation",title5="batch-max dense activations", histogram4colornum=2, histogram5colornum=2)
-
-# training step, the learning rate is a placeholder
-train_step = tf.train.AdamOptimizer(lr).minimize(cross_entropy)
-
 # 'Saver' op to save and restore all the variables
 saver = tf.train.Saver()
 
@@ -184,165 +158,103 @@ init = tf.global_variables_initializer()
 sess = tf.Session()
 sess.run(init)
 
-
-# You can call this function in a loop to train the model, 100 images at a time
-def training_step(i, update_test_data, update_train_data):
-
-    # training on batches of 100 images with 100 labels
-    batch_X, batch_Y = mnist.train.next_batch(100)
-
-    # learning rate decay
-    max_learning_rate = 0.02
-    min_learning_rate = 0.0001
-    decay_speed = 1600
-    learning_rate = min_learning_rate + \
-        (max_learning_rate - min_learning_rate) * math.exp(-i / decay_speed)
-
-    # compute training values for visualisation
-    if update_train_data:
-        a, c, im, ca, da = sess.run([accuracy, cross_entropy, I, conv_activations, dense_activations], {
-                                    X: batch_X, Y_: batch_Y, tst: False, pkeep: 1.0, pkeep_conv: 1.0})
-        print(str(i) + ": accuracy:" + str(a) + " loss: " +
-              str(c) + " (lr:" + str(learning_rate) + ")")
-        datavis.append_training_curves_data(i, a, c)
-        datavis.update_image1(im)
-        datavis.append_data_histograms(i, ca, da)
-
-    # compute test values for visualisation
-    if update_test_data:
-        a, c, im = sess.run([accuracy, cross_entropy, It], {
-                            X: mnist.test.images, Y_: mnist.test.labels, tst: True, pkeep: 1.0, pkeep_conv: 1.0})
-        print(str(i) + ": ********* epoch " + str(i * 100 //
-                                                  mnist.train.images.shape[0] + 1) + " ********* test accuracy:" + str(a) + " test loss: " + str(c))
-        datavis.append_test_curves_data(i, a, c)
-        datavis.update_image2(im)
-
-    # the backpropagation training step
-    sess.run(train_step, {X: batch_X, Y_: batch_Y,
-                          lr: learning_rate, tst: False, pkeep: 0.75, pkeep_conv: 1.0})
-    sess.run(update_ema, {X: batch_X, Y_: batch_Y,
-                          tst: False, iter: i, pkeep: 1.0, pkeep_conv: 1.0})
-
-#datavis.animate(training_step, 10001, train_data_update_freq=20, test_data_update_freq=100, save_movie=True)
-
-
-# Save model weights to disk
-#save_path = saver.save(sess, model_path)
-
-# to save the animation as a movie, add save_movie=True as an argument to datavis.animate
-# to disable the visualisation use the following line instead of the datavis.animate line
-# for i in range(10000+1): training_step(i, i % 100 == 0, i % 20 == 0)
-
-#print("max test accuracy: " + str(datavis.get_max_test_accuracy()))
-
 # Restore trained model
 saver.restore(sess, model_path)
 
-
-print("-" * 40)
-# Test trained model
-print("-- A halozat tesztelese")
-saver.restore(sess, model_path)
-correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
-accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-print("-- Pontossag: ", sess.run(accuracy, feed_dict={
-                    X: mnist.test.images, Y_: mnist.test.labels, tst: True, pkeep: 1.0, pkeep_conv: 1.0}))
-print("-" * 40)
-
-
-print("-- A MNIST 42. tesztkepenek felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
-
-img = mnist.test.images[42]
-image = img
-matplotlib.pyplot.imshow(image.reshape(
-    28, 28), cmap=matplotlib.pyplot.cm.binary)
-matplotlib.pyplot.savefig("{path}/output/4.png".format(path=img_path))
-matplotlib.pyplot.show()
-
-classification = sess.run(tf.argmax(Y, 1), feed_dict={
-                          X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
-
-print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
-print("-" * 40)
+if len(sys.argv) == 1:
+    print("-" * 40)
+    # Test trained model
+    print("-- A halozat tesztelese")
+    correct_prediction = tf.equal(tf.argmax(Y, 1), tf.argmax(Y_, 1))
+    accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+    print("-- Pontossag: ", sess.run(accuracy, feed_dict={
+                        X: mnist.test.images, Y_: mnist.test.labels, tst: True, pkeep: 1.0, pkeep_conv: 1.0}))
+    print("-" * 40)
 
 
-print("-- A sajat kezi 1-esem felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
+    print("-- A MNIST 42. tesztkepenek felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
 
-img = readimg("sajat1.png")
-image = img
-image = image.reshape(28, 28,1)
+    image = mnist.test.images[42]
 
-matplotlib.pyplot.imshow(image.reshape(28, 28), cmap=matplotlib.pyplot.cm.binary)
-matplotlib.pyplot.savefig("{path}/output/1.png".format(path=img_path))
-matplotlib.pyplot.show()
+    matplotlib.pyplot.imshow(image.reshape(
+        28, 28), cmap=matplotlib.pyplot.cm.binary)
+    matplotlib.pyplot.savefig("{path}/output/4.png".format(path=img_path))
+    matplotlib.pyplot.show()
 
-classification = sess.run(tf.argmax(Y, 1), feed_dict={
-                          X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
+    classification = sess.run(tf.argmax(Y, 1), feed_dict={
+                              X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
 
-print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
-print("-" * 40)
-
-
-print("-- Sajat kezi 5-ösöm felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
-
-img = readimg("sajat5.png")
-image = img
-#image = Image.reshape(28 * 28)
-
-matplotlib.pyplot.imshow(image.reshape(
-    28, 28), cmap=matplotlib.pyplot.cm.binary)
-matplotlib.pyplot.savefig("{path}/output/5.png".format(path=img_path))
-matplotlib.pyplot.show()
-
-classification = sess.run(tf.argmax(Y, 1), feed_dict={
-                          X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
-
-print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
-print("-" * 40)
+    print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
+    print("-" * 40)
 
 
-print("-- Sajat kezi 6-osom felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
+    print("-- A sajat kezi 1-esem felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
 
-img = readimg("sajat6.png")
-image = img
-#image = Image.reshape(28 * 28)
+    image = readimg("sajat1.png")
 
-matplotlib.pyplot.imshow(image.reshape(
-    28, 28), cmap=matplotlib.pyplot.cm.binary)
-matplotlib.pyplot.savefig("{path}/output/6.png".format(path=img_path))
-matplotlib.pyplot.show()
+    matplotlib.pyplot.imshow(image.reshape(28, 28), cmap=matplotlib.pyplot.cm.binary)
+    matplotlib.pyplot.savefig("{path}/output/1.png".format(path=img_path))
+    matplotlib.pyplot.show()
 
-classification = sess.run(tf.argmax(Y, 1), feed_dict={
-                          X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
+    classification = sess.run(tf.argmax(Y, 1), feed_dict={
+                              X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
 
-print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
-print("-" * 40)
+    print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
+    print("-" * 40)
 
 
-print("-- Tina 2-ese felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
+    print("-- Sajat kezi 5-ösöm felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
 
-img = readimg("tina.png")
-image = img
-#image = Image.reshape(28 * 28)
+    image = readimg("sajat5.png")
 
-matplotlib.pyplot.imshow(image.reshape(
-    28, 28), cmap=matplotlib.pyplot.cm.binary)
-matplotlib.pyplot.savefig("{path}/output/tina_2.png".format(path=img_path))
-matplotlib.pyplot.show()
+    matplotlib.pyplot.imshow(image.reshape(
+        28, 28), cmap=matplotlib.pyplot.cm.binary)
+    matplotlib.pyplot.savefig("{path}/output/5.png".format(path=img_path))
+    matplotlib.pyplot.show()
 
-classification = sess.run(tf.argmax(Y, 1), feed_dict={
-                          X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
+    classification = sess.run(tf.argmax(Y, 1), feed_dict={
+                              X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
 
-print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
-print("-" * 40)
+    print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
+    print("-" * 40)
+
+
+    print("-- Sajat kezi 6-osom felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
+
+    image = readimg("sajat6.png")
+
+    matplotlib.pyplot.imshow(image.reshape(
+        28, 28), cmap=matplotlib.pyplot.cm.binary)
+    matplotlib.pyplot.savefig("{path}/output/6.png".format(path=img_path))
+    matplotlib.pyplot.show()
+
+    classification = sess.run(tf.argmax(Y, 1), feed_dict={
+                              X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
+
+    print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
+    print("-" * 40)
+
+
+    print("-- Tina 2-ese felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
+
+    image = readimg("tina.png")
+
+    matplotlib.pyplot.imshow(image.reshape(
+        28, 28), cmap=matplotlib.pyplot.cm.binary)
+    matplotlib.pyplot.savefig("{path}/output/tina_2.png".format(path=img_path))
+    matplotlib.pyplot.show()
+
+    classification = sess.run(tf.argmax(Y, 1), feed_dict={
+                              X: [image], tst: True, pkeep: 1.0, pkeep_conv: 1.0})
+
+    print("-- Ezt a halozat ennek ismeri fel: ", classification[0])
+    print("-" * 40)
 
 if len(sys.argv) > 1:
     print("-" * 40)
     print("-- Input kep felismerese, mutatom a szamot, a tovabblepeshez csukd be az ablakat")
 
-    img = readimg(sys.argv[1])
-    image = img
-    image = image.reshape(28, 28,1)
+    image = readimg(sys.argv[1])
 
     matplotlib.pyplot.imshow(image.reshape(28, 28), cmap=matplotlib.pyplot.cm.binary)
     matplotlib.pyplot.savefig("{path}/output/out.png".format(path=img_path))
